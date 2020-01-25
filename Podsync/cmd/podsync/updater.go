@@ -124,6 +124,7 @@ func (u *Updater) Update(ctx context.Context, feedConfig *config.Feed) error {
 	// Save XML to disk
 	xmlName := fmt.Sprintf("%s.xml", feedConfig.ID)
 	xmlPath := filepath.Join(u.config.Server.DataDir, xmlName)
+	
 	log.Debugf("saving feed XML file to %s", xmlPath)
 	if err := ioutil.WriteFile(xmlPath, []byte(podcast.String()), 0600); err != nil {
 		return errors.Wrapf(err, "failed to write XML feed to disk")
