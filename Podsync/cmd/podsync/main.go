@@ -4,12 +4,13 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jessevdk/go-flags"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
+	// "golang.org/x/sync/errgroup"
 
 	"github.com/mxpv/podsync/pkg/config"
 	"github.com/mxpv/podsync/pkg/ytdl"
@@ -35,7 +36,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	group, ctx := errgroup.WithContext(ctx)
+	// group, ctx := errgroup.WithContext(ctx)
 
 	// Parse args
 	opts := Opts{}
@@ -71,14 +72,27 @@ func main() {
 			log.WithError(err).Fatal("failed to create updater")
 		}
 
+		pathPrefix := ""
+
+		id := c.Request.URL.Query().Get("channelId")
+		if id != "" {
+			pathPrefix = "channel/"
+		} else {
+			id = c.Request.URL.Query().Get("playlist")
+			pathPrefix = "playlist?list="
+		}
+
+		url := []string{"https://www.youtube.com/", pathPrefix, id}
+
 		feed := config.Feed{
-			ID:      "ID1",
-			URL:     "https://www.youtube.com/playlist?list=PLklI4fp4DoMj4Vz4W8Q7d8gycP_a9hPaE",
+			ID: id,
+			// URL:     "https://www.youtube.com/playlist?list=PLklI4fp4DoMj4Vz4W8Q7d8gycP_a9hPaE",
+			URL:     strings.Join(url, ""),
 			Quality: "high",
 			Format:  "audio",
 		}
 
-		if err := updater.Update(ctx, feed); err != nil {
+		if err := updater.Update(ctx, &feed); err != nil {
 			log.WithError(err).Errorf("failed to update feed: %s", feed.URL)
 		}
 
