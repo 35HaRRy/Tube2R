@@ -1,6 +1,6 @@
 [server]
 port = 8080
-data_dir = "C:/Users/hayri/Desktop/Data"
+data_dir = "./data"
 
 [tokens]
 youtube = "AIzaSyDOQcLZAhFsLdE5F_yVTjUvBNjgJQivnRA"
