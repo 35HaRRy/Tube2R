@@ -18,10 +18,16 @@ import (
 	"github.com/mxpv/podsync/pkg/feed"
 	"github.com/mxpv/podsync/pkg/link"
 	"github.com/mxpv/podsync/pkg/model"
+	"github.com/mxpv/podsync/pkg/ytdl"
 )
 
+type DownloadResult struct {
+	Result string
+	Error  error
+}
+
 type Downloader interface {
-	Download(ctx context.Context, feedConfig *config.Feed, episode *model.Episode, feedPath string) (string, error)
+	Download(ctx context.Context, feedConfig *config.Feed, episode *model.Episode, feedPath string) <-chan (ytdl.DownloadResult)
 }
 
 type Updater struct {
@@ -33,7 +39,7 @@ func NewUpdater(config *config.Config, downloader Downloader) (*Updater, error) 
 	return &Updater{config: config, downloader: downloader}, nil
 }
 
-func (u *Updater) Update(ctx context.Context, feedConfig *config.Feed) error {
+func (u *Updater) Update(ctx context.Context, feedConfig *config.Feed) (error, *itunes.Podcast) {
 	log.WithFields(log.Fields{
 		"feed_id": feedConfig.ID,
 		"format":  feedConfig.Format,
@@ -45,20 +51,20 @@ func (u *Updater) Update(ctx context.Context, feedConfig *config.Feed) error {
 	feedPath := filepath.Join(u.config.Server.DataDir, feedConfig.ID)
 	log.Debugf("creating directory for feed %q", feedPath)
 	if err := os.MkdirAll(feedPath, 0755); err != nil {
-		return errors.Wrapf(err, "failed to create directory for feed %q", feedConfig.ID)
+		return errors.Wrapf(err, "failed to create directory for feed %q", feedConfig.ID), nil
 	}
 
 	// Create an updater for this feed type
 	provider, err := u.makeBuilder(ctx, feedConfig)
 	if err != nil {
-		return err
+		return err, nil
 	}
 
 	// Query API to get episodes
 	log.Debug("building feed")
 	result, err := provider.Build(ctx, feedConfig)
 	if err != nil {
-		return err
+		return err, nil
 	}
 
 	log.Debugf("received %d episode(s) for %q", len(result.Episodes), result.Title)
@@ -80,18 +86,19 @@ func (u *Updater) Update(ctx context.Context, feedConfig *config.Feed) error {
 		episodePath := filepath.Join(feedPath, u.episodeName(feedConfig, episode))
 		_, err := os.Stat(episodePath)
 		if err != nil && !os.IsNotExist(err) {
-			return errors.Wrap(err, "failed to check whether episode exists")
+			return errors.Wrap(err, "failed to check whether episode exists"), nil
 		}
 
 		if os.IsNotExist(err) {
 			// There is no file on disk, download episode
 			logger.Infof("! downloading episode %s", episode.VideoURL)
-			if output, err := u.downloader.Download(ctx, feedConfig, episode, feedPath); err == nil {
+
+			if output := <-u.downloader.Download(ctx, feedConfig, episode, feedPath); output.Error == nil {
 				downloaded++
 			} else {
 				// YouTube might block host with HTTP Error 429: Too Many Requests
 				// We still need to generate XML, so just stop sending download requests and retry next time
-				if strings.Contains(output, "HTTP Error 429") {
+				if strings.Contains(output.Result, "HTTP Error 429") {
 					logger.WithError(err).Warnf("got too many requests error, will retry download next time")
 					break
 				}
@@ -117,7 +124,7 @@ func (u *Updater) Update(ctx context.Context, feedConfig *config.Feed) error {
 	log.Debug("building iTunes podcast feed")
 	podcast, err := u.buildPodcast(result, feedConfig, sizes)
 	if err != nil {
-		return err
+		return err, nil
 	}
 
 	// Save XML to disk
@@ -126,7 +133,7 @@ func (u *Updater) Update(ctx context.Context, feedConfig *config.Feed) error {
 	log.Debugf("saving feed XML file to %s", xmlPath)
 
 	if err := ioutil.WriteFile(xmlPath, []byte(podcast.String()), 0600); err != nil {
-		return errors.Wrapf(err, "failed to write XML feed to disk")
+		return errors.Wrapf(err, "failed to write XML feed to disk"), nil
 	}
 
 	elapsed := time.Since(started)
@@ -137,7 +144,8 @@ func (u *Updater) Update(ctx context.Context, feedConfig *config.Feed) error {
 		downloaded,
 		nextUpdate.Format(time.Kitchen),
 	)
-	return nil
+
+	return nil, podcast
 }
 
 func (u *Updater) buildPodcast(feed *model.Feed, cfg *config.Feed, sizes map[string]int64) (*itunes.Podcast, error) {
@@ -226,7 +234,7 @@ func (u *Updater) makeEnclosure(
 	}
 
 	url := fmt.Sprintf(
-		"%s/files?listId=%s&name=%s.%s",
+		"%s/files/%s/%s.%s",
 		u.hostname(),
 		cfg.ID,
 		episode.ID,

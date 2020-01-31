@@ -18,11 +18,6 @@ COPY ./docs ./docs
 COPY ./pkg ./pkg
 COPY config.toml .
 
-# RUN go build -o main .
-# COPY main .
-
 EXPOSE 8080
 
-# CMD ["main", "--config config.toml"]
 CMD ["go", "run", "./cmd/podsync"]
-# CMD ["ls"]

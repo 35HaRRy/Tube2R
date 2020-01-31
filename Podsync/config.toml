@@ -1,6 +1,7 @@
 [server]
 port = 8080
 data_dir = "./data"
+hostname = "https://tube2pod.azurewebsites.net"
 
 [tokens]
 youtube = "AIzaSyDOQcLZAhFsLdE5F_yVTjUvBNjgJQivnRA"

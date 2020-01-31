@@ -10,7 +10,7 @@ import (
 
 	"github.com/jessevdk/go-flags"
 	log "github.com/sirupsen/logrus"
-	// "golang.org/x/sync/errgroup"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/mxpv/podsync/pkg/config"
 	"github.com/mxpv/podsync/pkg/ytdl"
@@ -36,7 +36,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// group, ctx := errgroup.WithContext(ctx)
+	group, ctx := errgroup.WithContext(ctx)
 
 	// Parse args
 	opts := Opts{}
@@ -61,45 +61,77 @@ func main() {
 		log.WithError(err).Fatal("failed to load configuration file")
 	}
 
-	r := gin.Default()
+	route := gin.Default()
 
-	r.GET("/rss", func(c *gin.Context) {
-		// Run updater thread
-		log.Debug("creating updater")
-		updater, err := NewUpdater(cfg, downloader)
+	group.Go(func() error {
+		route.Static("/files", cfg.Server.DataDir)
+		route.GET("/rss", func(c *gin.Context) {
+			// Run updater thread
+			log.Debug("creating updater")
+			updater, err := NewUpdater(cfg, downloader)
 
-		if err != nil {
-			log.WithError(err).Fatal("failed to create updater")
-		}
+			if err != nil {
+				log.WithError(err).Fatal("failed to create updater")
+			}
 
-		pathPrefix := ""
+			pathPrefix := ""
 
-		id := c.Request.URL.Query().Get("channelId")
-		if id != "" {
-			pathPrefix = "channel/"
-		} else {
-			id = c.Request.URL.Query().Get("playlist")
-			pathPrefix = "playlist?list="
-		}
+			id := c.Request.URL.Query().Get("channelId")
+			if id != "" {
+				pathPrefix = "channel/"
+			} else {
+				id = c.Request.URL.Query().Get("playlist")
+				pathPrefix = "playlist?list="
+			}
 
-		url := []string{"https://www.youtube.com/", pathPrefix, id}
+			url := []string{"https://www.youtube.com/", pathPrefix, id}
 
-		feed := config.Feed{
-			ID: id,
-			// URL:     "https://www.youtube.com/playlist?list=PLklI4fp4DoMj4Vz4W8Q7d8gycP_a9hPaE",
-			URL:     strings.Join(url, ""),
-			Quality: "high",
-			Format:  "audio",
-		}
+			feed := config.Feed{
+				ID: id,
+				// URL:     "https://www.youtube.com/playlist?list=PLklI4fp4DoMj4Vz4W8Q7d8gycP_a9hPaE",
+				URL:     strings.Join(url, ""),
+				Quality: "high",
+				Format:  "audio",
+			}
 
-		if err := updater.Update(ctx, &feed); err != nil {
-			log.WithError(err).Errorf("failed to update feed: %s", feed.URL)
-		}
+			err, podcast := updater.Update(ctx, &feed)
+			if err != nil {
+				log.WithError(err).Errorf("failed to update feed: %s", feed.URL)
+			}
 
-		c.JSON(200, gin.H{
-			"message": "pong",
+			c.String(200, podcast.String())
+			// c.XML(200, podcast)
+			// c.JSON(200, gin.H{
+			// 	"message": "pong",
+			// })
 		})
+		// route.GET("/files", func(c *gin.Context) {
+		// 	listId := c.Request.URL.Query().Get("listId")
+		// 	name := c.Request.URL.Query().Get("name")
+		// 	filePath := []string{cfg.Server.DataDir, "/", listId, name}
+
+		// 	c.File(strings.Join(filePath, ""))
+		// 	// c.XML(200, podcast)
+		// })
+
+		return route.Run() // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
 	})
 
-	r.Run() // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
+	group.Go(func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-stop:
+				cancel()
+				return nil
+			}
+		}
+	})
+
+	if err := group.Wait(); err != nil && err != context.Canceled {
+		log.WithError(err).Error("wait error")
+	}
+
+	log.Info("gracefully stopped")
 }

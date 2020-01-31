@@ -18,6 +18,11 @@ const DownloadTimeout = 10 * time.Minute
 
 type YoutubeDl struct{}
 
+type DownloadResult struct {
+	Result string
+	Error  error
+}
+
 func New(ctx context.Context) (*YoutubeDl, error) {
 	ytdl := &YoutubeDl{}
 
@@ -40,65 +45,92 @@ func New(ctx context.Context) (*YoutubeDl, error) {
 	return ytdl, nil
 }
 
-func (dl YoutubeDl) Download(ctx context.Context, feedConfig *config.Feed, episode *model.Episode, feedPath string) (string, error) {
+func (dl YoutubeDl) Download(ctx context.Context, feedConfig *config.Feed, episode *model.Episode, feedPath string) <-chan (DownloadResult) {
+	result := make(chan DownloadResult)
+
 	var (
 		outputTemplate = makeOutputTemplate(feedPath, episode)
 		url            = episode.VideoURL
 	)
 
-	if feedConfig.Format == model.FormatAudio {
-		// Audio
-		if feedConfig.Quality == model.QualityHigh {
-			// High quality audio (encoded to mp3)
-			return dl.exec(ctx,
-				"--extract-audio",
-				"--audio-format",
-				"mp3",
-				"--format",
-				"bestaudio",
-				"--output",
-				outputTemplate,
-				url,
-			)
-		} else { //nolint
-			// Low quality audio (encoded to mp3)
-			return dl.exec(ctx,
-				"--extract-audio",
-				"--audio-format",
-				"mp3",
-				"--format",
-				"worstaudio",
-				"--output",
-				outputTemplate,
-				url,
-			)
+	go func() {
+		defer close(result)
+
+		if feedConfig.Format == model.FormatAudio {
+			// Audio
+			if feedConfig.Quality == model.QualityHigh {
+				// High quality audio (encoded to mp3)
+				result <- dl.execAsync(ctx,
+					"--extract-audio",
+					"--audio-format",
+					"mp3",
+					"--format",
+					"bestaudio",
+					"--output",
+					outputTemplate,
+					url,
+				)
+			} else { //nolint
+				// Low quality audio (encoded to mp3)
+				result <- dl.execAsync(ctx,
+					"--extract-audio",
+					"--audio-format",
+					"mp3",
+					"--format",
+					"worstaudio",
+					"--output",
+					outputTemplate,
+					url,
+				)
+			}
+		} else {
+			/*
+				Video
+			*/
+			if feedConfig.Quality == model.QualityHigh {
+				// High quality
+				result <- dl.execAsync(ctx,
+					"--format",
+					"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+					"--output",
+					outputTemplate,
+					url,
+				)
+			} else { //nolint
+				// Low quality
+				result <- dl.execAsync(ctx,
+					"--format",
+					"worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst",
+					"--output",
+					outputTemplate,
+					url,
+				)
+			}
 		}
-	} else {
-		/*
-			Video
-		*/
-		if feedConfig.Quality == model.QualityHigh {
-			// High quality
-			return dl.exec(ctx,
-				"--format",
-				"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-				"--output",
-				outputTemplate,
-				url,
-			)
-		} else { //nolint
-			// Low quality
-			return dl.exec(ctx,
-				"--format",
-				"worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst",
-				"--output",
-				outputTemplate,
-				url,
-			)
-		}
-	}
+	}()
+
+	return result
 }
 
+func (YoutubeDl) execAsync(ctx context.Context, args ...string) DownloadResult {
+	ctx, cancel := context.WithTimeout(ctx, DownloadTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "youtube-dl", args...)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return DownloadResult{
+			Result: string(output),
+			Error:  errors.Wrap(err, "failed to execute youtube-dl"),
+		}
+	}
+
+	return DownloadResult{
+		Result: string(output),
+		Error:  nil,
+	}
+}
 func (YoutubeDl) exec(ctx context.Context, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, DownloadTimeout)
 	defer cancel()
