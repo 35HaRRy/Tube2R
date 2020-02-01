@@ -18,16 +18,10 @@ import (
 	"github.com/mxpv/podsync/pkg/feed"
 	"github.com/mxpv/podsync/pkg/link"
 	"github.com/mxpv/podsync/pkg/model"
-	"github.com/mxpv/podsync/pkg/ytdl"
 )
 
-type DownloadResult struct {
-	Result string
-	Error  error
-}
-
 type Downloader interface {
-	Download(ctx context.Context, feedConfig *config.Feed, episode *model.Episode, feedPath string) <-chan (ytdl.DownloadResult)
+	Download(ctx context.Context, feedConfig *config.Feed, episode *model.Episode, feedPath string) //	<-chan (ytdl.DownloadResult)
 }
 
 type Updater struct {
@@ -45,10 +39,11 @@ func (u *Updater) Update(ctx context.Context, feedConfig *config.Feed) (error, *
 		"format":  feedConfig.Format,
 		"quality": feedConfig.Quality,
 	}).Infof("-> updating %s", feedConfig.URL)
-	started := time.Now()
+	// started := time.Now()
 
 	// Make sure feed directory exists
 	feedPath := filepath.Join(u.config.Server.DataDir, feedConfig.ID)
+
 	log.Debugf("creating directory for feed %q", feedPath)
 	if err := os.MkdirAll(feedPath, 0755); err != nil {
 		return errors.Wrapf(err, "failed to create directory for feed %q", feedConfig.ID), nil
@@ -73,53 +68,6 @@ func (u *Updater) Update(ctx context.Context, feedConfig *config.Feed) (error, *
 	// we'll patch XML feed with values from this map
 	sizes := map[string]int64{}
 
-	// The number of episodes downloaded during this update
-	downloaded := 0
-
-	// Download and encode episodes
-	for idx, episode := range result.Episodes {
-		logger := log.WithFields(log.Fields{
-			"index":      idx,
-			"episode_id": episode.ID,
-		})
-
-		episodePath := filepath.Join(feedPath, u.episodeName(feedConfig, episode))
-		_, err := os.Stat(episodePath)
-		if err != nil && !os.IsNotExist(err) {
-			return errors.Wrap(err, "failed to check whether episode exists"), nil
-		}
-
-		if os.IsNotExist(err) {
-			// There is no file on disk, download episode
-			logger.Infof("! downloading episode %s", episode.VideoURL)
-
-			if output := <-u.downloader.Download(ctx, feedConfig, episode, feedPath); output.Error == nil {
-				downloaded++
-			} else {
-				// YouTube might block host with HTTP Error 429: Too Many Requests
-				// We still need to generate XML, so just stop sending download requests and retry next time
-				if strings.Contains(output.Result, "HTTP Error 429") {
-					logger.WithError(err).Warnf("got too many requests error, will retry download next time")
-					break
-				}
-
-				logger.WithError(err).Errorf("youtube-dl error: %s", output)
-			}
-		} else {
-			// Episode already downloaded
-			logger.Debug("skipping download of episode")
-		}
-
-		// Record file size
-		if size, err := u.fileSize(episodePath); err != nil {
-			// Don't return on error, use estimated file size provided by builders
-			logger.WithError(err).Error("failed to get episode file size")
-		} else { //nolint
-			logger.Debugf("file size %d", size)
-			sizes[episode.ID] = size
-		}
-	}
-
 	// Build iTunes XML feed with data received from builder
 	log.Debug("building iTunes podcast feed")
 	podcast, err := u.buildPodcast(result, feedConfig, sizes)
@@ -136,14 +84,14 @@ func (u *Updater) Update(ctx context.Context, feedConfig *config.Feed) (error, *
 		return errors.Wrapf(err, "failed to write XML feed to disk"), nil
 	}
 
-	elapsed := time.Since(started)
-	nextUpdate := time.Now().Add(feedConfig.UpdatePeriod.Duration)
-	log.Infof(
-		"successfully updated feed in %s, downloaded: %d episode(s), next update at %s",
-		elapsed,
-		downloaded,
-		nextUpdate.Format(time.Kitchen),
-	)
+	// elapsed := time.Since(started)
+	// nextUpdate := time.Now().Add(feedConfig.UpdatePeriod.Duration)
+	// log.Infof(
+	// 	"successfully updated feed in %s, downloaded: %d episode(s), next update at %s",
+	// 	elapsed,
+	// 	downloaded,
+	// 	nextUpdate.Format(time.Kitchen),
+	// )
 
 	return nil, podcast
 }

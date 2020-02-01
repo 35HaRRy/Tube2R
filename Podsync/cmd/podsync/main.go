@@ -4,11 +4,13 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jessevdk/go-flags"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 
@@ -63,8 +65,63 @@ func main() {
 
 	route := gin.Default()
 
+	// Create routes
 	group.Go(func() error {
-		route.Static("/files", cfg.Server.DataDir)
+		// route.Static("/files", cfg.Server.DataDir)
+		route.GET("/files", func(c *gin.Context) {
+			// Download file
+			log.Debug("creating updater")
+			updater, err := NewUpdater(cfg, downloader)
+
+			pathPrefix := ""
+
+			id := c.Request.URL.Query().Get("channelId")
+			if id != "" {
+				pathPrefix = "channel/"
+			} else {
+				id = c.Request.URL.Query().Get("playlist")
+				pathPrefix = "playlist?list="
+			}
+
+			url := []string{"https://www.youtube.com/", pathPrefix, id}
+
+			feed := config.Feed{
+				ID: id,
+				// URL:     "https://www.youtube.com/playlist?list=PLklI4fp4DoMj4Vz4W8Q7d8gycP_a9hPaE",
+				URL:     strings.Join(url, ""),
+				Quality: "high",
+			}
+
+			logger := log.WithFields(log.Fields{
+				"episode_id": episode.ID,
+			})
+
+			feedPath := filepath.Join(updater.config.Server.DataDir, feed.ID)
+			episodePath := filepath.Join(feedPath, updater.episodeName(&feed, episode))
+
+			_, err := os.Stat(episodePath)
+			if err != nil && !os.IsNotExist(err) {
+				return errors.Wrap(err, "failed to check whether episode exists"), nil
+			}
+
+			if os.IsNotExist(err) {
+				// There is no file on disk, download episode
+				logger.Infof("! downloading episode %s", episode.VideoURL)
+				updater.downloader.Download(ctx, &feed, episode, feedPath)
+			} else {
+				// Episode already downloaded
+				logger.Debug("skipping download of episode")
+			}
+
+			// Record file size
+			// if size, err := u.fileSize(episodePath); err != nil {
+			// 	// Don't return on error, use estimated file size provided by builders
+			// 	logger.WithError(err).Error("failed to get episode file size")
+			// } else { //nolint
+			// 	logger.Debugf("file size %d", size)
+			// 	sizes[episode.ID] = size
+			// }
+		})
 		route.GET("/rss", func(c *gin.Context) {
 			// Run updater thread
 			log.Debug("creating updater")
@@ -105,18 +162,11 @@ func main() {
 			// 	"message": "pong",
 			// })
 		})
-		// route.GET("/files", func(c *gin.Context) {
-		// 	listId := c.Request.URL.Query().Get("listId")
-		// 	name := c.Request.URL.Query().Get("name")
-		// 	filePath := []string{cfg.Server.DataDir, "/", listId, name}
 
-		// 	c.File(strings.Join(filePath, ""))
-		// 	// c.XML(200, podcast)
-		// })
-
-		return route.Run() // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
+		return route.Run()
 	})
 
+	// Terminate app
 	group.Go(func() error {
 		for {
 			select {
