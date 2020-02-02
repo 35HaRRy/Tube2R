@@ -45,85 +45,85 @@ func New(ctx context.Context) (*YoutubeDl, error) {
 	return ytdl, nil
 }
 
-func (dl YoutubeDl) Download(ctx context.Context, feedConfig *config.Feed, episode *model.Episode, feedPath string) /*<-chan (DownloadResult)*/ {
+func (dl YoutubeDl) Download(ctx context.Context, feedConfig *config.Feed, episode *model.Episode, feedPath string) (string, error) /*<-chan (DownloadResult)*/ {
 	// result := make(chan DownloadResult)
 
-	go func() {
-		// defer close(result)
+	// go func() {
+	// defer close(result)
 
-		var (
-			outputTemplate = makeOutputTemplate(feedPath, episode)
-			url            = episode.VideoURL
-		)
+	var (
+		outputTemplate = makeOutputTemplate(feedPath, episode)
+		url            = episode.VideoURL
+	)
 
-		if feedConfig.Format == model.FormatAudio {
-			// Audio
-			if feedConfig.Quality == model.QualityHigh {
-				// High quality audio (encoded to mp3)
-				/*result, err :=*/
-				dl.exec(ctx,
-					"--extract-audio",
-					"--audio-format",
-					"mp3",
-					"--format",
-					"bestaudio",
-					"--output",
-					outputTemplate,
-					url,
-				)
+	if feedConfig.Format == model.FormatAudio {
+		// Audio
+		if feedConfig.Quality == model.QualityHigh {
+			// High quality audio (encoded to mp3)
+			/*result, err :=*/
+			return dl.exec(ctx,
+				"--extract-audio",
+				"--audio-format",
+				"mp3",
+				"--format",
+				"bestaudio",
+				"--output",
+				outputTemplate,
+				url,
+			)
 
-				// if err != nil {
-				// 	// YouTube might block host with HTTP Error 429: Too Many Requests
-				// 	// We still need to generate XML, so just stop sending download requests and retry next time
-				// 	if strings.Contains(result, "HTTP Error 429") {
-				// 		logger.WithError(err).Warnf("got too many requests error, will retry download next time")
-				// 		break
-				// 	}
+			// if err != nil {
+			// 	// YouTube might block host with HTTP Error 429: Too Many Requests
+			// 	// We still need to generate XML, so just stop sending download requests and retry next time
+			// 	if strings.Contains(result, "HTTP Error 429") {
+			// 		logger.WithError(err).Warnf("got too many requests error, will retry download next time")
+			// 		break
+			// 	}
 
-				// 	logger.WithError(err).Errorf("youtube-dl error: %s", result)
-				// }
-			} else {
-				//nolint
-				// Low quality audio (encoded to mp3)
-				/*result, err :=*/
-				dl.exec(ctx,
-					"--extract-audio",
-					"--audio-format",
-					"mp3",
-					"--format",
-					"worstaudio",
-					"--output",
-					outputTemplate,
-					url,
-				)
-			}
+			// 	logger.WithError(err).Errorf("youtube-dl error: %s", result)
+			// }
 		} else {
-			/*
-				Video
-			*/
-			if feedConfig.Quality == model.QualityHigh {
-				// High quality
-				/*result, err :=*/
-				dl.exec(ctx,
-					"--format",
-					"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-					"--output",
-					outputTemplate,
-					url,
-				)
-			} else { //nolint
-				// Low quality
-				/*result, err :=*/
-				dl.exec(ctx,
-					"--format",
-					"worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst",
-					"--output",
-					outputTemplate,
-					url,
-				)
-			}
+			//nolint
+			// Low quality audio (encoded to mp3)
+			/*result, err :=*/
+			return dl.exec(ctx,
+				"--extract-audio",
+				"--audio-format",
+				"mp3",
+				"--format",
+				"worstaudio",
+				"--output",
+				outputTemplate,
+				url,
+			)
 		}
-	}()
+	} else {
+		/*
+			Video
+		*/
+		if feedConfig.Quality == model.QualityHigh {
+			// High quality
+			/*result, err :=*/
+			return dl.exec(ctx,
+				"--format",
+				"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+				"--output",
+				outputTemplate,
+				url,
+			)
+		} else { //nolint
+			// Low quality
+			/*result, err :=*/
+			return dl.exec(ctx,
+				"--format",
+				"worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst",
+				"--output",
+				outputTemplate,
+				url,
+			)
+		}
+	}
+	// }()
 
 	// return result
 }

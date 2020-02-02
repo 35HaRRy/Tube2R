@@ -21,7 +21,7 @@ import (
 )
 
 type Downloader interface {
-	Download(ctx context.Context, feedConfig *config.Feed, episode *model.Episode, feedPath string) //	<-chan (ytdl.DownloadResult)
+	Download(ctx context.Context, feedConfig *config.Feed, episode *model.Episode, feedPath string) (string, error) //	<-chan (ytdl.DownloadResult)
 }
 
 type Updater struct {
@@ -174,19 +174,26 @@ func (u *Updater) makeEnclosure(
 	episode *model.Episode,
 	cfg *config.Feed,
 ) (string, itunes.EnclosureType, int64) {
-	ext := "mp4"
+	// ext := "mp4"
 	contentType := itunes.MP4
+
 	if feed.Format == model.FormatAudio {
-		ext = "mp3"
+		// ext = "mp3"
 		contentType = itunes.MP3
 	}
 
+	pathPrefix := "channel"
+	if feed.LinkType != "channel" {
+		pathPrefix = "playList"
+	}
+
 	url := fmt.Sprintf(
-		"%s/files/%s/%s.%s",
+		"%s/rss/file/?%sId=%s&id=%s",
 		u.hostname(),
+		pathPrefix,
 		cfg.ID,
 		episode.ID,
-		ext,
+		// ext,
 	)
 
 	return url, contentType, episode.Size

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -10,11 +11,11 @@ import (
 	"time"
 
 	"github.com/jessevdk/go-flags"
-	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/mxpv/podsync/pkg/config"
+	"github.com/mxpv/podsync/pkg/model"
 	"github.com/mxpv/podsync/pkg/ytdl"
 
 	"github.com/gin-gonic/gin"
@@ -67,18 +68,16 @@ func main() {
 
 	// Create routes
 	group.Go(func() error {
-		// route.Static("/files", cfg.Server.DataDir)
-		route.GET("/files", func(c *gin.Context) {
+		// route.Static("/rss/file", cfg.Server.DataDir)
+		route.GET("/rss/file", func(c *gin.Context) {
 			// Download file
 			log.Debug("creating updater")
 			updater, err := NewUpdater(cfg, downloader)
 
-			pathPrefix := ""
+			pathPrefix := "channel/"
 
 			id := c.Request.URL.Query().Get("channelId")
-			if id != "" {
-				pathPrefix = "channel/"
-			} else {
+			if id == "" {
 				id = c.Request.URL.Query().Get("playlist")
 				pathPrefix = "playlist?list="
 			}
@@ -89,38 +88,53 @@ func main() {
 				ID: id,
 				// URL:     "https://www.youtube.com/playlist?list=PLklI4fp4DoMj4Vz4W8Q7d8gycP_a9hPaE",
 				URL:     strings.Join(url, ""),
-				Quality: "high",
+				Quality: "low",
+				Format:  "audio",
+			}
+
+			episodeID := c.Request.URL.Query().Get("id")
+			episode := model.Episode{
+				ID:       episodeID,
+				VideoURL: fmt.Sprintf("https://www.youtube.com/watch?v=%s", episodeID),
 			}
 
 			logger := log.WithFields(log.Fields{
-				"episode_id": episode.ID,
+				"episode_id": episodeID,
 			})
 
 			feedPath := filepath.Join(updater.config.Server.DataDir, feed.ID)
-			episodePath := filepath.Join(feedPath, updater.episodeName(&feed, episode))
+			episodePath := filepath.Join(feedPath, updater.episodeName(&feed, &episode))
 
-			_, err := os.Stat(episodePath)
+			_, err = os.Stat(episodePath)
 			if err != nil && !os.IsNotExist(err) {
-				return errors.Wrap(err, "failed to check whether episode exists"), nil
-			}
-
-			if os.IsNotExist(err) {
-				// There is no file on disk, download episode
-				logger.Infof("! downloading episode %s", episode.VideoURL)
-				updater.downloader.Download(ctx, &feed, episode, feedPath)
+				// return errors.Wrap(err, "failed to check whether episode exists"), nil
+				c.String(500, "failed to check whether episode exists")
 			} else {
-				// Episode already downloaded
-				logger.Debug("skipping download of episode")
-			}
+				if os.IsNotExist(err) {
+					// There is no file on disk, download episode
+					logger.Infof("! downloading episode %s", episode.VideoURL)
+					result, err := updater.downloader.Download(ctx, &feed, &episode, feedPath)
 
-			// Record file size
-			// if size, err := u.fileSize(episodePath); err != nil {
-			// 	// Don't return on error, use estimated file size provided by builders
-			// 	logger.WithError(err).Error("failed to get episode file size")
-			// } else { //nolint
-			// 	logger.Debugf("file size %d", size)
-			// 	sizes[episode.ID] = size
-			// }
+					if err != nil {
+						c.String(500, result)
+					} else {
+						c.File(episodePath)
+					}
+				} else {
+					// Episode already downloaded
+					logger.Debug("skipping download of episode")
+					c.File(episodePath)
+				}
+
+				// Record file size
+				// if size, err := u.fileSize(episodePath); err != nil {
+				// 	// Don't return on error, use estimated file size provided by builders
+				// 	logger.WithError(err).Error("failed to get episode file size")
+				// } else { //nolint
+				// 	logger.Debugf("file size %d", size)
+				// 	sizes[episode.ID] = size
+				// }
+			}
 		})
 		route.GET("/rss", func(c *gin.Context) {
 			// Run updater thread
@@ -131,12 +145,10 @@ func main() {
 				log.WithError(err).Fatal("failed to create updater")
 			}
 
-			pathPrefix := ""
+			pathPrefix := "channel/"
 
 			id := c.Request.URL.Query().Get("channelId")
-			if id != "" {
-				pathPrefix = "channel/"
-			} else {
+			if id == "" {
 				id = c.Request.URL.Query().Get("playlist")
 				pathPrefix = "playlist?list="
 			}
@@ -147,7 +159,7 @@ func main() {
 				ID: id,
 				// URL:     "https://www.youtube.com/playlist?list=PLklI4fp4DoMj4Vz4W8Q7d8gycP_a9hPaE",
 				URL:     strings.Join(url, ""),
-				Quality: "high",
+				Quality: "low",
 				Format:  "audio",
 			}
 
