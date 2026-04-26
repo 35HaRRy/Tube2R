@@ -1,17 +1,16 @@
 # Tube2R
-GO web application that converts YouTube channel or public playlist to mp3 RSS feed.
 
-Based on project [PodSync](https://github.com/mxpv/podsync)
+## Summary
+An ASP.NET Core app that turns YouTube channels or public playlists into an MP3 RSS feed.
 
-## Run as binary:
-```
-$ ./podsync --config config.toml
-```
+## Dependencies
+- A .NET toolchain that supports `netcoreapp2.1`
+- `Microsoft.AspNetCore.App`
+- `Microsoft.AspNetCore.Razor.Design`
+- `System.ServiceModel.Syndication`
 
-### Query string options
-- **`playlist:`** To get playlist as RSS feed use this query string value. Like YouTube
-  - https://www.youtube.com/playlist?list=[PlayListValue]
-- **`channelId:`** To get channel as RSS feed use this query string value.
-  - https://studio.youtube.com/channel/[ChannelId]
-
-[MIT License](https://opensource.org/licenses/MIT)
+## Setup
+1. Install a .NET toolchain that supports `netcoreapp2.1`.
+2. Restore packages with `dotnet restore`.
+3. Review `appsettings.json` and `appsettings.Development.json`.
+4. Run the app with `dotnet run`.
